@@ -88,9 +88,10 @@ def load_opti_prompt_model(conf, device):
         MAX_ITER=conf.getint("maxiter"), 
         BEAM_SIZE=conf.getint("beam_size"), 
         NUM_MASK=conf.getint("num_mask"), 
-        BATCH_SIZE=10)
+        BATCH_SIZE=10,
+        verbose=False)
 
-    return lm_model, preprocessor, decoder
+    return lm_model, preprocessor, decoder, template
 
 
 def main():
@@ -122,10 +123,36 @@ def main():
         print(e)
         sys.exit(3)
     
-    P703_lm_model, P703_preprocessor, P703_decoder = load_opti_prompt_model(config["P703"], device)
-    rP703_lm_model, rP703_preprocessor, rP703_decoder = load_opti_prompt_model(config["rP703"], device)
-    print(P703_lm_model)
-    print(rP703_lm_model)
+    P703_lm_model, P703_preprocessor, P703_decoder, P703_template = load_opti_prompt_model(config["P703"], device)
+    rP703_lm_model, rP703_preprocessor, rP703_decoder, rP703_template = load_opti_prompt_model(config["rP703"], device)
+
+    while True:
+        text = input("Please enter input like:\n\t(1) List of chemicals produced by [X]\n\t(2) List of fungi producer of [X]\n>")
+        if "List of chemicals produced by" not in text and "List of fungi producer of" not in text:
+            print("[Warning] Please type in the proper format.\n")
+            continue
+
+        if "List of fungi producer of " in text:
+            # property P703
+            subject = text.split("List of fungi producer of ")[1]
+            P703_input = P703_template.replace('[X]', subject)
+            P703_sentences = P703_preprocessor.preprocess_single_sent(sentence=P703_input)
+
+            all_preds_probs = P703_decoder.decode([P703_sentences], batch_size=10, verbose=False)
+            preds_probs = all_preds_probs[0]
+
+            print_predictions("The compound [X] is produced by [Y].".replace('[X]', subject), preds_probs)
+        else:
+            subject = text.split("List of chemicals produced by ")[1]
+            rP703_input = rP703_template.replace('[X]', subject)
+            rP703_sentences = rP703_preprocessor.preprocess_single_sent(sentence=rP703_input)
+
+            all_preds_probs = rP703_decoder.decode([rP703_sentences], batch_size=10, verbose=False)
+            preds_probs = all_preds_probs[0]
+
+            print_predictions("The fungus [X] is a natural producer of [Y].".replace('[X]', subject), preds_probs)
+
+        print("\n")
 
 if __name__ == '__main__':
     main()
