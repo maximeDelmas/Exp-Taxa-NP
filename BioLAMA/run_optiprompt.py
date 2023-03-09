@@ -53,11 +53,15 @@ def set_seed(seed):
     """
     Set the random seed.
     """
-    np.random.seed(seed)
+    print("- seed: " + str(seed))
+    random.seed(seed)
+    np.random.RandomState(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
-    random.seed(seed)
-    torch.backends.cudnn.deterministic = True
+    torch.cuda.manual_seed_all(seed)
+
+    # For reproductibility:
+    torch.backends.cudnn.enabled = False
 
 def convert_manual_to_dense(manual_template, base_model, tokenizer):
     def assign_embedding(new_token, token):
@@ -85,7 +89,7 @@ def convert_manual_to_dense(manual_template, base_model, tokenizer):
     template = ' '.join(template)
     return template
 
-def load_model(model_name, tokenizer, device, random_init='none'):
+def load_model(model_name, tokenizer, device, reset, random_init='none'):
     if isinstance(tokenizer, BertTokenizer):
         lm_model = BertForMaskedLM.from_pretrained(model_name).to(device)
         base_model = lm_model.bert
@@ -97,6 +101,21 @@ def load_model(model_name, tokenizer, device, random_init='none'):
     else:
         print(f"tokenizer type = {type(tokenizer)}")
         assert 0
+    
+    if reset == "embedding":
+        print("[INFO] Reset word embedding layer.")
+        lm_model.bert.embeddings.word_embeddings.weight.data.normal_(mean=0.0, std=lm_model.config.initializer_range)
+
+    elif reset == "all":
+        print("[INFO] Reset all alyers.")
+        lm_model.bert.embeddings.word_embeddings.weight.data.normal_(mean=0.0, std=lm_model.config.initializer_range)
+
+        for l in lm_model.bert.encoder.layer:
+            l.apply(lm_model._init_weights)
+
+    else:
+        print("[INFO] NO reset action.")
+
 
     return lm_model, base_model
 
@@ -178,6 +197,7 @@ def main():
     parser.add_argument("--pids", default=None)
     parser.add_argument("--output_dir", default=None)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--reset", type=str, required=False, choices=["embedding", "all"], default=None)
 
     args = parser.parse_args()
 
@@ -266,7 +286,8 @@ def main():
         lm_model, base_model = load_model(
             model_name=args.model_name_or_path, 
             tokenizer=tokenizer,
-            device=device
+            device=device,
+            reset=args.reset
         )
         # load_optiprompt if the checkpoint exists
         prepare_for_dense_prompt(lm_model, tokenizer)
