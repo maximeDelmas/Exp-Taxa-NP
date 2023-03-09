@@ -6,6 +6,7 @@ from transformers import (
 )
 
 import json
+import random
 from preprocessor import Preprocessor
 from decoder import Decoder
 from evaluator import Evaluator
@@ -14,6 +15,20 @@ from glob import glob
 import os
 import numpy as np
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+def set_seed(seed):
+    """
+    Set the random seed.
+    """
+    print("- seed: " + str(seed))
+    random.seed(seed)
+    np.random.RandomState(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    # For reproductibility:
+    torch.backends.cudnn.enabled = False
 
 def main():
     parser = argparse.ArgumentParser()
@@ -43,6 +58,8 @@ def main():
         print('Device name:', torch.cuda.get_device_name(0))
     else:
         print('No GPU available, using the CPU instead.')
+
+    set_seed(0)
 
     print(f'load model {args.model_name_or_path}')
     tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=False)
