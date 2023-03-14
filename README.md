@@ -1,235 +1,102 @@
-# BioLAMA
+# Evaluating the potential of Language Models as Knowledge Bases to support antibiotic discovery
 
-<div align="center">
-    <img src="images/biolama.png" width="400px" alt="BioLAMA">
-</div>
+We are very grateful to Mujeen Sung, Jinhyuk Lee, Sean S. Yi, Minji Jeon, Sungdong Kim and Jaewoo Kang for publishing the code of their paper *Can Language Models be Biomedical Knowledge Bases?*, which has greatly inspired this work.
 
-<b>BioLAMA</b> is biomedical factual knowledge triples for probing biomedical LMs. The triples are collected and pre-processed from three sources: CTD, UMLS, and Wikidata. Please see our paper [
-Can Language Models be Biomedical Knowledge Bases? (Sung et al., 2021)](http://arxiv.org/abs/2109.07154) for more details.
-
-### Updates
-* \[**Mar 17, 2022**\] The BioLAMA probe with the CTD/UMLS/Wikidata triples are released [here](https://drive.google.com/file/d/1CcjpmNuAXavL3aMjwVqiiziMu3OGDyyG/view?usp=sharing).
+This documentation provides all the steps to reproduce our analysis.
  
-## Getting Started
-After the [installation](#installation), you can easily try BioLAMA with manual prompts. When a subject is "flu" and you want to probe its symptoms from an LM, the input should be like "Flu has symptom such as \[Y\]."
+## Getting Started - installing conda env
 
-```
-# Set MODEL to bert-base-cased for BERT or dmis-lab/biobert-base-cased-v1.2 for BioBERT
-MODEL=./RoBERTa-base-PM-Voc/RoBERTa-base-PM-Voc-hf
-python ./BioLAMA/cli_demo.py \
-    --model_name_or_path ${MODEL}
+```bash
+conda env create -f env/env.yml
 ```
 
-Result:
-```
-Please enter input (e.g., Flu has symptoms such as [Y].):
-hepatocellular carcinoma has symptoms such as [Y].
--------------------------
-Rank    Prob    Pred
--------------------------
-1       0.648   jaundice
-2       0.223   abdominal pain
-3       0.127   jaundice and ascites
-4       0.11    ascites
-5       0.086   hepatomegaly
-6       0.074   obstructive jaundice
-7       0.06    abdominal pain and jaundice
-8       0.059   ascites and jaundice
-9       0.043   anorexia and jaundice
-10      0.042   fever and jaundice
--------------------------
-Top1 prediction sentence:
-"hepatocellular carcinoma has symptoms such as jaundice."
+Then,
+```bash
+conda activate prompting
 ```
 
-## Quick Link
-* [Installation](#installation)
-* [Resources](#resources)
-* [Experiments](#experiments)
+## Getting data and output experiments
 
-## Installation
+Please, download the *data* and *output* directory from [ZENODO LINK]
 
-```
-# Install torch with conda (please check your CUDA version)
-conda create -n BioLAMA python=3.7
-conda activate BioLAMA
-conda install pytorch=1.8.0 cudatoolkit=10.2 -c pytorch
+* * *
 
-# Install BioLAMA
-git clone https://github.com/dmis-lab/BioLAMA.git
-cd BioLAMA
-pip install -r requirements.txt
-```
+## Discriminant analysis
 
-## Resources
+Can language models distinguish between true and false assertions about relations between fungi and natural product, or, about the antibiotic activity of natural products ?
 
-### Models
-For BERT and BioBERT, we use checkpoints provided in the Huggingface Hub:
-- [bert-base-cased](https://huggingface.co/bert-base-cased) (for BERT)
-- [dmis-lab/biobert-base-cased-v1.2](https://huggingface.co/dmis-lab/biobert-base-cased-v1.2) (for BioBERT)
+The dataset is available at: *data/np/discriminant-analysis/dataset.tsv*
 
-Bio-LM is not provided in the Huggingface Hub. Therefore, we use the Bio-LM checkpoint released in [link](https://github.com/facebookresearch/bio-lm). Among the various versions of Bio-LMs, we use `RoBERTa-base-PM-Voc-hf'.
-```
-wget https://dl.fbaipublicfiles.com/biolm/RoBERTa-base-PM-Voc-hf.tar.gz
-tar -xzvf RoBERTa-base-PM-Voc-hf.tar.gz 
-rm -rf RoBERTa-base-PM-Voc-hf.tar.gz
-```
+### Compute the analysis
+Please, use *Analyses/Discriminative-analysis/discriminative-analysis.ipynb* to re-generate the measures and use *Analyses/Discriminative-analysis/discriminant-analysis-figure.Rmd* to regenerate the figures.
 
-### Datasets
+For the first step, pre-computed results from the paper are also provided in *output/np/discriminant-analysis*
 
-The dataset will take about 85 MB of space. You can download the dataset [here](https://drive.google.com/file/d/1CcjpmNuAXavL3aMjwVqiiziMu3OGDyyG/view?usp=sharing).
+* * *
 
-```
-tar -xzvf data.tar.gz
-rm -rf data.tar.gz
-```
+## Tokenization analysis
 
-The directory tree of the data is like:
-```
-data
-├── ctd
-│   ├── entities
-│   ├── meta
-│   ├── prompts
-│   └── triples_processed
-│       └── CD1
-│           ├── dev.jsonl
-│           ├── test.jsonl
-│           └── train.jsonl
-├── wikidata
-│   ├── entities
-│   ├── meta
-│   ├── prompts
-│   └── triples_processed
-│       └── P2175
-│           ├── dev.jsonl
-│           ├── test.jsonl
-│           └── train.jsonl
-└── umls
-    ├── meta
-    └── prompts
-    └── triples_processed
-        └── UR44
-            ├── dev.jsonl
-            ├── test.jsonl
-            └── train.jsonl
-    
+Before evaluating the potential of models to predict fungi related to natural product and vice-versa, we estimated how chemicals and taxa names are decomposed by the native tokenizers of the models.
 
+Data available in: *data/np/pre-processing*
+
+### Compute the analysis
+
+Use *Analyses/tokenization-analysis/tokenization-analysis.ipynb* to reproduce the tables.
+
+* * *
+
+## Prediction analysis
+
+Can pre-trained language models predict the fungi producing a natural product or vice-versa ?
+
+### Get or re-create training, dev and test datasets
+
+* Original dataset available at: *data/np/triples_processed*
+
+* To regenerate a dataset, please use:
+
+```{bash}
+TOPN=5000
+TOPK=50
+python preprocessing/process_abroad_triples.py  \
+    --input_pairs="data/np/pre-processing/taxon-np-list.csv"  \
+    --input_taxa_names="data/np/pre-processing/ALL-taxons-ids-names.tsv"  \
+    --input_chem_main_names="data/np/pre-processing/wikidata/np_names_wikidata.tsv"  \
+    --input_chem_syn_names="data/np/pre-processing/wikidata/np_synonyms_wikidata.tsv"  \
+    --property="rP703"  \
+    --topn=${TOPN} \
+    --topk=${TOPK} \
+    --outdir="data/np/triples_processed"
+
+python preprocessing/process_abroad_triples.py  \
+    --input_pairs="data/np/pre-processing/taxon-np-list.csv"  \
+    --input_taxa_names="data/np/pre-processing/ALL-taxons-ids-names.tsv"  \
+    --input_chem_main_names="data/np/pre-processing/wikidata/np_names_wikidata.tsv"  \
+    --input_chem_syn_names="data/np/pre-processing/wikidata/np_synonyms_wikidata.tsv"  \
+    --property="P703" \
+    --topn=${TOPN} \
+    --topk=${TOPK} \
+    --outdir="data/np/triples_processed" \
 ```
 
-## Experiments
-
-We provide two ways of probing PLMs with BioLAMA:
-- [Manual Prompt](#manual-prompt)
-- [OptiPrompt](#optiprompt)
-
-### Manual Prompt
-
-<b>Manual Prompt</b> probes PLMs using pre-defined manual prompts. The predictions and scores will be logged in '/output'.
-
-```
-# Set TASK to 'ctd' for CTD or 'umls' for UMLS
-# Set MODEL to 'bert-base-cased' for BERT or 'dmis-lab/biobert-base-cased-v1.2' for BioBERT
-TASK=wikidata
-MODEL=./RoBERTa-base-PM-Voc/RoBERTa-base-PM-Voc-hf
-PROMPT_PATH=./data/${TASK}/prompts/manual.jsonl
-TEST_PATH=./data/${TASK}/triples_processed/*/test.jsonl
-
-python ./BioLAMA/run_manual.py \
-    --model_name_or_path ${MODEL} \
-    --prompt_path ${PROMPT_PATH} \
-    --test_path "${TEST_PATH}" \
-    --init_method confidence \
-    --iter_method none \
-    --num_mask 10 \
-    --max_iter 10 \
-    --beam_size 5 \
-    --batch_size 16 \
-    --output_dir ./output/${TASK}_manual
+For help of the parameters use:
+```{bash}
+process_abroad_triples.py --help
 ```
 
-Result:
-```
-PID     Acc@1   Acc@5
--------------------------
-P2175   9.40    21.11
-P2176   22.46   39.75
-P2293   2.24    11.43
-P4044   9.47    19.47
-P780    16.30   37.85
--------------------------
-MACRO   11.97   25.92
-```
+Info: By default, the datasets are split in 0.4, 0.1, 0.5 for train, dev and test, as in *Sung et al.*. As we want to assess the maximal performances of the models without generalisation purposes, we used 20% of the test set for building the development set and selecting the best checkpoint during training. Then, we merged the initial train and dev set, and, used the *shuf -n X* to extract the new dev set from the test set.
 
-### OptiPrompt
+### Get or re-generate the results
 
-<b>OptiPrompt</b> probes PLMs using embedding-based prompts starting from embeddings of manual prompts. The predictions and scores will be logged in '/output'.
+All generated experiments are available in *output/manual/* and *output/opti* for manual prompts and OptiPrompt respectively. All combinations of prompts and multi-tokens decoding strategies were evaluated for each selected models.
 
-```
-# Set TASK to 'ctd' for CTD or 'umls' for UMLS
-# Set MODEL to 'bert-base-cased' for BERT or 'dmis-lab/biobert-base-cased-v1.2' for BioBERT
-TASK=wikidata
-MODEL=./RoBERTa-base-PM-Voc/RoBERTa-base-PM-Voc-hf
-PROMPT_PATH=./data/${TASK}/prompts/manual.jsonl
-TRAIN_PATH=./data/${TASK}/triples_processed/*/train.jsonl
-DEV_PATH=./data/${TASK}/triples_processed/*/dev.jsonl
-TEST_PATH=./data/${TASK}/triples_processed/*/test.jsonl
+All experiments can be re-computed following the documentation already provided in the [original repository](https://github.com/dmis-lab/BioLAMA) of *Sung et al.*
 
-python ./BioLAMA/run_optiprompt.py \
-    --model_name_or_path ${MODEL} \
-    --train_path "${TRAIN_PATH}" \
-    --dev_path "${DEV_PATH}" \
-    --test_path "${TEST_PATH}" \
-    --prompt_path ${PROMPT_PATH} \
-    --num_mask 10 \
-    --init_method confidence \
-    --iter_method none \
-    --max_iter 10 \
-    --beam_size 5 \
-    --batch_size 16 \
-    --lr 3e-3 \
-    --epochs 10 \
-    --seed 0 \
-    --prompt_token_len 5 \
-    --init_manual_template \
-    --output_dir ./output/${TASK}_optiprompt
-```
+### Compute figures
 
-Result:
-```
-PID     Acc@1   Acc@5
--------------------------
-P2175   9.47    24.94
-P2176   20.14   39.57
-P2293   2.90    9.21
-P4044   7.53    18.58
-P780    12.98   33.43
--------------------------
-MACRO   7.28    18.51
-```
+All figures and tables from the paper can be reproduced from *Analyses/prediction-analysis/prediction-analysis-figures-and-tables.Rmd*
+Please, consider that the indexing of the manual prompt (*manual1* or *manual2*) is **inversed for P703** in the paper compared to what is indicated in the prompt files at (*data/np/prompts*).
 
-### IE Baseline (BEST)
+Warning: For practical reasons, when computing the predictions, *manual1* is set to "The fungus [X] produces the compound [Y]." when predicting the chemical and "The compound [X] was isolated and identified from culture of the fungus [Y]." when predicting the fungus. Also, *manual2* is set to "The compound [Y] was isolated and identified from culture of the fungus [X]." when predicting the chemical and "The compound [X] was isolated and identified from culture of the fungus [Y]." when predicting the fungus. However, we reverse the prompt for P703 of manual1 to manual2 and vice-versa when interpreting the results.
 
-<b>BEST (Biomedical Entity Search Tool)</b> is a returns relevant biomedical entity given a query. By constructing the query We used <b>BEST</b> as an information extraction baseline.
-
-```
-TASK=wikidata
-TEST_PATH=./data/${TASK}/triples_processed/*/test.jsonl
-CUDA_VISIBLE_DEVICES=0 python ./BioLAMA/run_ie.py \
-    --test_path "${TEST_PATH}" \
-    --output_dir ./output/${TASK}_ie
-```
-
-
-## Acknowledgement
-Parts of the code are modified from [genewikiworld](https://github.com/SuLab/genewikiworld), [X-FACTR](https://github.com/jzbjyb/X-FACTR), and [OptiPrompt](https://github.com/princeton-nlp/OptiPrompt). We appreciate the authors for making their projects open-sourced.
-
-## Citations
-```bibtex
-@inproceedings{sung2021can,
-    title={Can Language Models be Biomedical Knowledge Bases},
-    author={Sung, Mujeen and Lee, Jinhyuk and Yi, Sean and Jeon, Minji and Kim, Sungdong and Kang, Jaewoo},
-    booktitle={Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing (EMNLP)},
-    year={2021},
-}
-```
