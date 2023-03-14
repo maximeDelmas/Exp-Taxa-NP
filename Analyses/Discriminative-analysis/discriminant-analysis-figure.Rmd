@@ -1,0 +1,232 @@
+---
+title: "Figure for discriminant analysis"
+author: "Maxime Delmas"
+date: "2023-02-22"
+output: html_document
+---
+ 
+# libraries
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(effsize)
+library(ggpubr)
+library(grid)
+```
+
+# Utility functions
+```{r}
+# Get divergence data in longer format
+get_longer_data <- function(path){
+  
+  data_JS_divergences <- read_tsv(path)
+  
+  longer_data_JS_divergences <- data_JS_divergences %>% pivot_longer(cols = c("PosxPos", "NegxNeg", "PosxNeg"), names_to = "Type", values_to = "JSD")
+  
+  # remove lines with na in cases of compution errors (i can happen on some lines ...)
+  longer_data_JS_divergences <- longer_data_JS_divergences[! is.na(longer_data_JS_divergences$JSD), ]
+}
+```
+
+
+## Paths
+
+```{r}
+data_directory <- "../../output/np/discriminant-analysis/" # to change depending on file system
+```
+
+
+```{r}
+t1.path <- paste(data_directory, "JS_divergence_eval_1_5000.tsv", sep="/")  # to change depending on file system
+
+t1 <- get_longer_data(t1.path)
+t1$Task <- "task1"
+
+t2.path <- paste(data_directory, "JS_divergence_eval_2_5000.tsv", sep="/") # to change depending on file system
+
+t2 <- get_longer_data(t2.path)
+t2$Task <- "task2"
+
+t <- rbind(t1, t2)
+
+t$Template <- t$Template + 1
+```
+
+
+## Compute Mann Whitney Wilcoxon Test (also called the Wilcoxon Rank Sum Test)
+```{r}
+
+# prepare data
+Wilcoxon_data_ <- t %>% select(model, Template, Task) %>% distinct()
+
+Wilcoxon_data <- rbind((Wilcoxon_data_ %>% mutate(Compare = "VS-PosxPos")), (Wilcoxon_data_ %>% mutate(Compare = "VS-NegxNeg")))
+
+Wilcoxon_data$CliffDelta <- 0
+Wilcoxon_data$p.value <- 0
+
+for (i in 1:nrow(Wilcoxon_data)) {
+  model <- Wilcoxon_data[i, ]$model
+  template <- Wilcoxon_data[i, ]$Template
+  comparison <- Wilcoxon_data[i, ]$Compare
+  data_wilcoxon <- t[t$model == model & t$Template == template, ]
+  if(comparison == "VS-PosxPos"){
+    
+    wilcoxon_rank_sum_test <- wilcox.test(data_wilcoxon[data_wilcoxon$Type == "PosxNeg", ]$JSD, data_wilcoxon[data_wilcoxon$Type == "PosxPos", ]$JSD, paired = F, alternative = "greater")
+    CliffD <- cliff.delta(data_wilcoxon[data_wilcoxon$Type == "PosxNeg", ]$JSD, data_wilcoxon[data_wilcoxon$Type == "PosxPos", ]$JSD)
+  }
+  else{
+    
+    wilcoxon_rank_sum_test <- wilcox.test(data_wilcoxon[data_wilcoxon$Type == "PosxNeg", ]$JSD, data_wilcoxon[data_wilcoxon$Type == "NegxNeg", ]$JSD, paired = F, alternative = "greater")
+    CliffD <- cliff.delta(data_wilcoxon[data_wilcoxon$Type == "PosxNeg", ]$JSD, data_wilcoxon[data_wilcoxon$Type == "NegxNeg", ]$JSD)
+    
+  }
+  Wilcoxon_data[i, ]$CliffDelta <- as.numeric(CliffD$estimate)
+  Wilcoxon_data[i, ]$p.value <- as.numeric(wilcoxon_rank_sum_test$p.value)
+
+}
+
+DT::datatable(Wilcoxon_data)
+```
+
+What is the cliff-delta: It is the difference between the probability that X > Y and Y > X. In our case, it can be interpreted as the difference in the probabilities of observing a higher Jensen-Shanon divergence when comparing a positive statement against a negative statement, rather than when comparing two positive or negative statements.
+
+When comparing 2 variables $X$ and $Y$:
+
+$Delta = \frac{1}{mn} \sum_{i=1}^m \sum_{j=1}^n \delta_{ij}$ avec
+
+$$
+\delta_{ij} = 
+  \begin{cases}
+  1 \text{ si } x_i > y_j \\
+  -1 \text{ si } x_i < y_j \\
+  0 sinon
+  \end{cases}
+$$ 
+
+
+Guidelines for interpreting the Cliff delta: https://sci-hub.st/https://doi.org/10.3102/10769986025002101
+(Table 1)
+
+```{r}
+print(paste("Pourcentage de Cliff-delta < 0.11: ", sum(Wilcoxon_data$CliffDelta < 0.11) / nrow(Wilcoxon_data) * 100))
+```
+
+Figure:
+
+```{r}
+
+# New facet label names 
+Wilcoxon_data$Compare <- factor(Wilcoxon_data$Compare, levels = c("VS-PosxPos", "VS-NegxNeg"), labels = c("D(P,N) > D(P,P)", "D(P,N) > D(N,N)"))
+Wilcoxon_data$Task <- factor(Wilcoxon_data$Task, levels = c("task1", "task2"), labels = c("Fungus produces Chemical", "Chemical has antimicrobial activity"))
+
+plot1 <- ggplot(Wilcoxon_data[Wilcoxon_data$Compare == "D(P,N) > D(P,P)", ], aes(x = factor(Template), y = model, fill = CliffDelta)) + 
+  geom_tile(color = "white",
+            lwd = 1.5,
+            linetype = 1) +
+  # geom_text(aes(label = round(vs_Neg, 2)), color = "white", size = 6) +
+  scale_fill_gradient2(low = "#075AFF",
+                       mid = "#FFFFCC",
+                       high = "#FF0000",
+                       limits = c(-1,1)) +
+  facet_grid(. ~ Task, scales = "free_x", space = "free_x") +
+  # ylab("Pre-trained Language Models") +
+  theme(axis.text.y = element_text(size = 10),
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+
+
+plot2 <- ggplot(Wilcoxon_data[Wilcoxon_data$Compare == "D(P,N) > D(N,N)", ], aes(x = factor(Template), y = model, fill = CliffDelta)) + 
+  geom_tile(color = "white",
+            lwd = 1.5,
+            linetype = 1) +
+  # geom_text(aes(label = round(vs_Neg, 2)), color = "white", size = 6) +
+  scale_fill_gradient2(low = "#075AFF",
+                       mid = "#FFFFCC",
+                       high = "#FF0000",
+                       limits = c(-1,1)) +
+  facet_grid(. ~ Task, scales = "free_x", space = "free_x") +
+  # ylab("Pre-trained Language Models") +
+  theme(axis.text.y = element_text(size = 10),
+        strip.background = element_blank(),
+        strip.text.x = element_blank(),
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+
+```
+
+
+```{r}
+plot(plot1)
+```
+
+
+```{r}
+plot(plot2)
+```
+
+Pour la corrélation top 1
+
+```{r}
+
+t1.cor.path <- paste(data_directory, "top_1_cor_eval_1.tsv")
+t1_top1_cor <- read_tsv(t1.cor.path)
+t1_top1_cor$Task <- "task1"
+
+
+t2.cor.path <- paste(data_directory, "top_1_cor_eval_2.tsv")
+t2_top1_cor <- read_tsv(t2.cor.path)
+t2_top1_cor$Task <- "task2"
+
+top1_cor <- rbind(t1_top1_cor, t2_top1_cor)
+top1_cor$Template <- top1_cor$Template + 1
+
+
+top1_cor$Task <- factor(top1_cor$Task, levels = c("task1", "task2"), labels = c("Fungus produces Chemical", "Chemical has antimicrobial activity"))
+
+```
+
+```{r}
+
+plot3 <- ggplot(top1_cor, aes(x = factor(Template), y = model, fill = cors)) + 
+  geom_tile(color = "white",
+            lwd = 1.5,
+            linetype = 1) +
+  # geom_text(aes(label = round(cors, 2)), color = "white", size = 6) +
+  scale_fill_gradient2(low = "#075AFF",
+                       high = "#FF0000",
+                       limits = c(0,1)) +
+  facet_grid(. ~ Task, scales = "free_x", space = "free_x") +
+  # ylab("Pre-trained Language Models") +
+  # xlab("Template index") +
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.x = element_text(size = 10), 
+        axis.text.y = element_text(size = 10),
+        strip.background = element_blank(),
+        strip.text.x = element_blank())
+
+```
+
+
+```{r}
+plot(plot3)
+```
+
+
+# Merge the 2 plots:
+
+```{r}
+full <- ggarrange(plot1, plot2, plot3, 
+                  labels = c("A", "B", "C"),
+                  font.label = list(size = 25, color = "black", face = "bold", family = NULL), 
+                  common.legend = FALSE, 
+                  legend = "right", ncol = 1)
+```
+
+```{r}
+plot(full)
+```
