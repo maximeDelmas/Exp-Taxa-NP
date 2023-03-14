@@ -1,0 +1,521 @@
+---
+title: "Figures and tables for prediction analysiss"
+author: "Maxime Delmas"
+date: "2023-02-27"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(PTXQC)
+library(rjson)
+library(effsize)
+library(ggpubr)
+library(grid)
+```
+
+## functions
+
+```{r}
+
+read_predictions <- function(path){
+  json.str <- readLines(path, ok = T, warn = F)
+  json.data <- fromJSON(json.str[1])
+  return(json.data)
+}
+
+# From the json data, creates the data.frame, with columns: subject.id, preds.label, preds.probas, rank
+extract_prediction_proba_pairs <- function(json.data){
+  
+  # Get length
+  N <- length(json.data[["result"]])
+  M <- length(json.data[["result"]][[1]][["preds"]])
+  
+  # inti the dataset
+  dataset <- data.frame(subject.id = vector("character", N * M), preds.label = vector("character", N * M), preds.probas = vector("numeric", N * M), preds.rank = rep(c(1:M), N))
+  
+  for(i in 1:N) {
+    
+    # get the data and fill to the corresponding indexes.
+    result <- json.data[["result"]][[i]]
+    
+    splited.uuid <- strsplit(result[["uuid"]], "-")[[1]]
+    subject.id <- splited.uuid[1]
+    
+    # preds
+    preds <- unlist(result[["preds"]])
+    preds.label <- preds[seq(1, length(preds), 2)]
+    preds.probas <- preds[seq(2, length(preds), 2)]
+    
+    is.correct <- rep(FALSE, M)
+    if(length(result[["corrected_preds"]]) > 0) {
+      # correct preds
+      correct.preds <- unlist(result[["corrected_preds"]])
+      correct.preds.label <- correct.preds[seq(1, length(correct.preds), 2)]
+      correct.preds.rank <- as.numeric(correct.preds[seq(2, length(correct.preds), 2)])
+      
+      # test if preds in correct preds
+      is.correct <- preds.label %in% correct.preds.label
+    }
+    
+    dataset[(M*(i - 1) + 1):(M * i ), "subject.id"] <- subject.id
+    dataset[(M*(i - 1) + 1):(M * i ), "preds.label"] <- preds.label
+    dataset[(M*(i - 1) + 1):(M * i ), "preds.probas"] <- as.numeric(preds.probas)
+    dataset[(M*(i - 1) + 1):(M * i ), "is.correct"] <- is.correct
+    
+  }
+  return(dataset)
+}
+
+
+
+create_plot <- function(big.df, ref){
+
+      sub.df <- big.df[big.df$ref == ref, ]
+    data_for_plot <- sub.df %>% mutate(masked.rank.bin = cut(rank.in.masked, breaks = c(-1, 1, 2, 5, 10, 20, 50), labels = c('exclusive', "top1", "top [2-5[", "top [5-10[", "[10-20[", "[20-50["), include.lowest = T, right = F))
+    data_for_plot <- data_for_plot %>% group_by(ref, preds.rank, masked.rank.bin) %>% summarise(n = n())
+    data_for_plot <- data_for_plot %>% group_by(ref, preds.rank) %>% mutate(prop = (n/sum(n)) * 100)
+    data_for_plot$masked.rank.bin <- factor(data_for_plot$masked.rank.bin, levels = c('exclusive', "top1", "top [2-5[", "top [5-10[", "[10-20[", "[20-50["))
+    
+    p <- data_for_plot %>% ggplot(aes(x = preds.rank, y = prop, fill = masked.rank.bin)) +
+      geom_bar(stat="identity", width=1) +
+      theme_classic() +
+      scale_fill_discrete(drop=FALSE) +
+      theme(axis.text = element_text(size = 20, , colour="black"), text = element_text(size = 15, colour="black")) +
+      xlab("") + 
+      ylab("")
+      # ggtitle(paste("property= ", ref)) +
+    return(p)
+
+}
+
+get_objectlabels_freq_in_dataset <- function(path){
+
+  lines <- readLines(path, ok = T, warn = F)
+  
+  N <- length(lines)
+  print(paste("Number of examples:", N))
+  v_obj.labels <- c()
+  
+  for(index in 1:N){
+    
+    line <- lines[index]
+    
+    json.data <- fromJSON(line)
+    
+    v_obj.labels <- c(v_obj.labels, json.data[["obj_labels"]])
+    
+  }
+  out <- data.frame(obj.label = v_obj.labels)
+  out <- out %>% group_by(obj.label) %>% summarise(n = n(), f = (n()/N) * 100 )
+  return(out)
+}
+
+
+compute_pred_LCP <- function(x, y) {
+    # Remove punctation or digit characters (if chemical for instance):
+    process_str <- function(x) {
+      tolower(gsub('[[:punct:][:digit:]]+','',x))
+    }
+    x.processed <- process_str(x)
+    y.processed <- sapply(y, FUN = process_str, simplify = T, USE.NAMES = F)
+    
+    longest <- 0
+    # cut x by space
+    for (ind.x in strsplit(x.processed, " ")[[1]]) {
+      # print(ind.x)
+      # also test on all y cuted by space
+      for(ind.y in strsplit(y.processed, " ")[[1]]){
+        # test if longest prefix is
+        l <- nchar(longestCommonPrefix(c(ind.x, ind.y)))
+        if(l > longest){
+          longest <- l
+        }
+      }
+    }
+    return(longest)
+  }
+
+get_table_labels <- function(path){
+  
+  lines <- readLines(path, ok = T, warn = F)
+  
+  N <- length(lines)
+  
+  out <- data.frame("subject.id" = vector("character", N), "subject.label" = vector("character", N))
+
+  for(index in 1:N){
+    
+    line <- lines[index]
+    
+    json.data <- fromJSON(line)
+    
+    subject.id <- json.data[["sub_uri"]]
+    
+    # On ne considère pas les synonymes car ils ne sont pas envoyé au modèle.
+    subject.label <- json.data[["sub_label"]]
+    
+        
+    out[index, "subject.id"] <- subject.id
+    out[index, "subject.label"] <- subject.label
+  }
+  return(out)
+}
+
+
+get_object_labels <- function(path){
+  
+  lines <- readLines(path, ok = T, warn = F)
+  
+  N <- length(lines)
+  
+  obj_labels <- c() 
+
+  for(index in 1:N){
+    
+    line <- lines[index]
+    
+    json.data <- fromJSON(line)
+    
+    obj_labels <- c(obj_labels, c(json.data[["obj_labels"]], unlist(json.data[["obj_aliases"]])))
+    
+  }
+  return(unique(obj_labels))
+  
+}
+
+get_LCP_on_all_test_data <- function(path){
+  
+  lines <- readLines(path, ok = T, warn = F)
+  
+  N <- length(lines)
+  
+  out <- data.frame() 
+
+  for(index in 1:N){
+    
+    line <- lines[index]
+    
+    json.data <- fromJSON(line)
+    
+    subject.label <- json.data[["sub_label"]]
+    
+    obj_labels <- c(json.data[["obj_labels"]], unlist(json.data[["obj_aliases"]]))
+    
+    v_LCP <- c()
+    for (obj.label in obj_labels) {
+      v_LCP <- c(v_LCP, compute_pred_LCP(subject.label, obj.label))
+    }
+    
+    out <- rbind(out, data.frame(subject.label = subject.label, obj.label = obj_labels, LCP = v_LCP))
+    
+  }
+  
+  return(out)
+  
+}
+
+```
+
+# Loading data
+
+Please, consider that the indexing of the manual prompt (manual1 or manual2) is **inversed for P703** in the analysis compared to what is indicated in the prompt files.
+For practical reasons when computing the predictings, manual1 is set to "The fungus [X] produces the compound [Y]." for rP703 and "The compound [X] was isolated and identified from culture of the fungus [Y]." for P703. Also, manual2 is set to "The compound [Y] was isolated and identified from culture of the fungus [X]." for rP703 and "The compound [X] was isolated and identified from culture of the fungus [Y]." for P703.
+However, as it more convenient to group them by size of the inputed prompts during the interpretation, we reverse we associate the prompt for P703 of manual1 to manual2 and vice-versa.
+
+
+## Best manual-prompting results
+
+```{r}
+manual_model_ref <- c("P703-manual*", "rP703-manual*")
+
+# Please, set here in order the path to the results file for the BEST performing configuration with manual prompt for P703 (predicting fungi) and rP703 (predicting chemical)
+manual_model_res <- c("../../output/np/manual/PubMedBERT/manual2/confidence/none/P703.json", "../../output/np/manual/PubMedBERT-full/manual1/order/confidence/rP703.json")
+
+# Please, set here in order the path to the results file for MASK experiments for the BEST performing configuration with manual prompt for P703 (predicting fungi) and rP703 (predicting chemical)
+manual_model_res_masked <- c("../../output/np/manual/PubMedBERT/manual2/confidence/none/MASKED/P703.json", "../../output/np/manual/PubMedBERT-full/manual1/order/confidence/MASKED/rP703.json")
+
+list.of.df <- list()
+
+for(index in 1:2){
+  
+  print("<=====================")
+  print(manual_model_ref[index])
+  p1 <- manual_model_res[index]
+  p2 <- manual_model_res_masked[index]
+  
+  print(paste("- Std. file at: ", p1))
+  print(paste("- Masked. file at: ", p2))
+  
+  std <- extract_prediction_proba_pairs(read_predictions(p1)) %>% distinct()
+  masked <- extract_prediction_proba_pairs(read_predictions(p2)) %>% distinct()
+  
+  masked_for_merging <- (masked %>% select(preds.label, preds.rank))
+  colnames(masked_for_merging) <- c("preds.label", "rank.in.masked")
+  
+  comp <- std %>% left_join(masked_for_merging, by = "preds.label")
+  comp[is.na(comp$rank.in.masked), ]$rank.in.masked <- -1
+  
+  # fill with metadata
+  comp$ref <- manual_model_ref[index]
+  
+  list.of.df[[index]] <- comp
+  
+  print("=====================>")
+  
+  index <- index + 1
+}
+          
+manual_big.df <- do.call("rbind", list.of.df)
+
+# remove empty predictions (== "") or prediction that are just a number.
+manual_big.df <- manual_big.df[ (manual_big.df$preds.label != "") , ]
+```
+
+
+
+## Best OptiPrompt results
+
+```{r}
+opti_model_ref <- c("P703-opti*", "rP703-opti*")
+opti_model_prop <- c("P703.json", "rP703.json")
+opti_model_res_dir <- c("../../output/np/opti/PubMedBERT-full/manual1/confidence/none", "../../output/np/opti/PubMedBERT/FS/order/confidence/")
+seeds <- c("seed0", "seed64", "seed333", "seed566", "seed999")
+```
+
+
+```{r}
+
+j <- 1
+
+list.of.df <- list()
+
+for(index in 1:2){
+  
+  for(seed in seeds){
+
+    print("<=====================")
+    print(opti_model_ref[index])
+    p1 <- paste(c(opti_model_res_dir[index], seed, opti_model_prop[index]), collapse = '/')
+    p2 <- paste(c(opti_model_res_dir[index], seed, "MASKED", opti_model_prop[index]), collapse = '/')
+    
+    print(paste("- Std. file at: ", p1))
+    print(paste("- Masked. file at: ", p2))
+    
+    std <- extract_prediction_proba_pairs(read_predictions(p1)) %>% distinct()
+    masked <- extract_prediction_proba_pairs(read_predictions(p2)) %>% distinct()
+    
+    masked_for_merging <- (masked %>% select(preds.label, preds.rank))
+    colnames(masked_for_merging) <- c("preds.label", "rank.in.masked")
+    
+    comp <- std %>% left_join(masked_for_merging, by = "preds.label")
+    comp[is.na(comp$rank.in.masked), ]$rank.in.masked <- -1
+    
+    # comp <- compare_std_exp_to_masked(std, masked)
+    
+    # fill with metadata
+    comp$ref <- opti_model_ref[index]
+    comp$seed <- seed
+    
+    list.of.df[[j]] <- comp
+    
+    print("=====================>")
+    
+    j <- j + 1
+  }
+}
+          
+opti_big.df <- do.call("rbind", list.of.df)
+
+# remove null predictions (== "") or prediction that are just a number.
+opti_big.df <- opti_big.df[ (opti_big.df$preds.label != "") , ]
+
+```
+
+# Create plots for prompt-bias analysis
+
+## Plots for each combination
+```{r}
+p1 <- create_plot(manual_big.df, "P703-manual*")
+p2 <- create_plot(manual_big.df, "rP703-manual*")
+p3 <- create_plot(opti_big.df, "P703-opti*")
+p4 <- create_plot(opti_big.df, "rP703-opti*")
+```
+
+
+## Some illustrative statistics
+```{r}
+
+# For the predictions on fungus: What % of the predictions in the top 10 are common to what is predicted in the top 10 also by the model with MASK as subject, for P703:?
+nrow(manual_big.df[manual_big.df$preds.rank <= 10 & manual_big.df$ref == "P703-manual*" & manual_big.df$rank.in.masked <= 10 & manual_big.df$rank.in.masked != -1 ,]) / nrow(manual_big.df[manual_big.df$preds.rank <= 10 & manual_big.df$ref == "P703-manual*",])
+
+# For the predictions on chemicals: What % of the predictions in the top 10 are common to what is predicted by the model with MASK as subject?
+nrow(manual_big.df[manual_big.df$preds.rank <= 10 & manual_big.df$ref == "rP703-manual*" & manual_big.df$rank.in.masked <= 10 & manual_big.df$rank.in.masked != -1 ,]) / nrow(manual_big.df[manual_big.df$preds.rank <= 10 & manual_big.df$ref == "rP703-manual*",])
+
+
+# For the predictions on fungus: What % of the predictions in the top 10 are common to what is predicted in the top 10 also by the model with MASK as subject, for P703:?
+nrow(opti_big.df[opti_big.df$preds.rank <= 10 & opti_big.df$ref == "P703-opti*" & opti_big.df$rank.in.masked <= 10 & opti_big.df$rank.in.masked != -1 ,]) / nrow(opti_big.df[opti_big.df$preds.rank <= 10 & opti_big.df$ref == "P703-opti*",])
+
+#  For predictions on chemicals: What % of the predictions in the top 10 are common to what is predicted by the model with MASK as subject?
+nrow(opti_big.df[opti_big.df$preds.rank <= 10 & opti_big.df$ref == "rP703-opti*" & opti_big.df$rank.in.masked <= 10 & opti_big.df$rank.in.masked != -1 ,]) / nrow(opti_big.df[opti_big.df$preds.rank <= 10 & opti_big.df$ref == "rP703-opti*",])
+```
+
+## Arrange all the plots
+```{r}
+p2 <- p2 + xlab("Prediction ranks")
+p4 <- p4 + xlab("Prediction ranks")
+
+p1 <- p1 + ylab("Proportion of predictions")
+p2 <- p2 + ylab("Proportion of predictions")
+
+full <- ggarrange(p1, p3, p2, p4, 
+                  labels = c("A", "B", "C", "D"),
+                  font.label = list(size = 20, color = "black", face = "bold", family = NULL), 
+                  common.legend = T, 
+                  legend = "right", ncol = 2, nrow = 2)
+```
+
+## Print the general plot
+```{r}
+plot(full)
+```
+
+
+# What the correct predictions are composed of ?
+
+```{r}
+test_data <- c("../../data/np/triples_processed/P703/test.jsonl", "../../data/np/triples_processed/rP703/test.jsonl")
+
+# we get the labels of the subjets to calculate the LCP between subjects and predictions
+labels_P703 <- get_table_labels(test_data[1])
+labels_P703$prop <- "P703"
+labels_rP703 <- get_table_labels(test_data[2])
+labels_rP703$prop <- "rP703"
+
+subject2labels <- rbind(labels_P703, labels_rP703)
+```
+
+```{r}
+# We get the labels of the objects to be able to filter the predictions on labels that really correspond to chemicals or organisms
+P703_obj_labels <- get_object_labels(test_data[1])
+rP703_obj_labels <- get_object_labels(test_data[2])
+obj_labels <- c(P703_obj_labels, rP703_obj_labels)
+```
+
+```{r}
+topk <- 5
+# The top answers correspond to the objects most frequently predicted by the model. We consider ONLY the predictions that really correspond to objects... not like "also" etc ...
+manual_top_answers <- rbind( (manual_big.df %>% mutate(prop = str_split(ref, "-", simplify = T)[, 1]) %>% filter(prop == "P703") %>% group_by(preds.label) %>% summarise(n = n()) %>% filter(preds.label %in% tolower(obj_labels)) %>% slice_max(order_by = n, n = topk)),
+                             (manual_big.df %>% mutate(prop = str_split(ref, "-", simplify = T)[, 1]) %>% filter(prop == "rP703") %>% group_by(preds.label) %>% summarise(n = n()) %>% filter(preds.label %in% tolower(obj_labels)) %>% slice_max(order_by = n, n = topk)))
+
+opti_top_answers <- rbind( (opti_big.df %>% mutate(prop = str_split(ref, "-", simplify = T)[, 1]) %>% filter(prop == "P703") %>% group_by(preds.label) %>% summarise(n = n()) %>% filter(preds.label %in% tolower(obj_labels)) %>% slice_max(order_by = n, n = topk)),
+                           (opti_big.df %>% mutate(prop = str_split(ref, "-", simplify = T)[, 1]) %>% filter(prop == "rP703") %>% group_by(preds.label) %>% summarise(n = n()) %>% filter(preds.label %in% tolower(obj_labels)) %>% slice_max(order_by = n, n = topk)))
+
+# Frequencies are calculated for manual
+manual_top_answers$avg_freq_in_preds <- NA
+manual_top_answers[1:topk, ]$avg_freq_in_preds <- (manual_top_answers[1:topk, ]$n * 100) / 1934
+manual_top_answers[(topk + 1):nrow(manual_top_answers), ]$avg_freq_in_preds <- (manual_top_answers[(topk + 1):nrow(manual_top_answers), ]$n * 100) / 500 
+
+# The frequencies are calculated for opti, and here the number of seeds is taken into account:
+opti_top_answers$avg_freq_in_preds <- NA
+opti_top_answers[1:topk, ]$avg_freq_in_preds <- (opti_top_answers[1:topk, ]$n * 100) / (1934 * 5)
+opti_top_answers[(topk + 1):nrow(manual_top_answers), ]$avg_freq_in_preds <- (opti_top_answers[(topk + 1):nrow(opti_top_answers), ]$n * 100) / (500 * 5) 
+
+
+P703_freq_in_test <- get_objectlabels_freq_in_dataset(test_data[1])
+
+# WARNING: We rename by preds.label just for the join!
+colnames(P703_freq_in_test) <- c("preds.label", "n_in_test", "freq_in_test")
+
+rP703_freq_in_test <- get_objectlabels_freq_in_dataset(test_data[2])
+colnames(rP703_freq_in_test) <- c("preds.label", "n_in_test", "freq_in_test")
+
+freq_in_test <- rbind(P703_freq_in_test, rP703_freq_in_test)
+freq_in_test$preds.label <- tolower(freq_in_test$preds.label)
+
+P703_freq_in_train <- get_objectlabels_freq_in_dataset("../../data/np/triples_processed/P703/train.jsonl")
+colnames(P703_freq_in_train) <- c("preds.label", "n_in_train", "freq_in_train")
+
+rP703_freq_in_train <- get_objectlabels_freq_in_dataset("../../data/np/triples_processed/rP703/train.jsonl")
+colnames(rP703_freq_in_train) <- c("preds.label", "n_in_train", "freq_in_train")
+
+freq_in_train <- rbind(P703_freq_in_train, rP703_freq_in_train)
+freq_in_train$preds.label <- tolower(freq_in_train$preds.label)
+
+manual_top_answers <- manual_top_answers %>% left_join(freq_in_test)
+opti_top_answers <- opti_top_answers %>% left_join(freq_in_test) %>% left_join(freq_in_train)
+                                                   
+```
+
+```{r}
+DT::datatable(manual_top_answers)
+```
+
+```{r}
+DT::datatable(opti_top_answers)
+```
+
+* Compute Longuest common prefix + generate figure
+```{r}
+
+get_class_of_preds <- function(data, subject2labels, top_answers, LCP_LIMIT){
+  
+  data <- data %>% mutate(prop = str_split(ref, "-", simplify = T)[, 1])
+  data_for_table <- data %>% filter(is.correct) %>% left_join(subject2labels, by = c("subject.id", "prop"))
+  
+  
+  data_for_table$LCP <- apply((data_for_table %>% select(subject.label, preds.label)), 1, FUN = function(x){compute_pred_LCP(x[1], x[2])})
+  data_for_table$test_LCP <- as.integer(data_for_table$LCP >= LCP_LIMIT)
+  
+  data_for_table$test_freq <- as.integer(data_for_table$preds.label %in% top_answers$preds.label)
+  
+  data_for_table <- data_for_table %>% mutate(Class = paste0(test_freq, test_LCP))
+  data_for_table$Class <- factor(data_for_table$Class, levels = c("00", "10", "01", "11"), labels = c("Original", "Top-Freq", "Leak", "Top-Freq & Leak"))
+  
+  return(list(data_for_table, (data_for_table %>% group_by(prop, Class) %>% summarise(n = n()) %>% group_by(prop) %>% mutate(p = round(n / sum(n) * 100, 2) ))))
+
+}
+
+LCP_LIMIT <- 5
+manual <- get_class_of_preds(manual_big.df, subject2labels, manual_top_answers, LCP_LIMIT)
+opti <- get_class_of_preds(opti_big.df, subject2labels, opti_top_answers, LCP_LIMIT)
+
+data_for_plot <- rbind( (manual[[2]] %>% mutate(Exp = "Manual*")), (opti[[2]] %>% mutate(Exp = "Opti*")) )
+data_for_plot <- data_for_plot %>% mutate(label = paste("(", p, " %)"))
+
+data_for_plot %>% 
+  ggplot(aes(x = Exp, y = p, fill = Class, label = label)) + 
+  geom_bar(stat = "identity", position = "stack") +
+  theme_classic() +
+  geom_text(size = 6, position = position_stack(vjust = 0.5)) +
+  theme(axis.text = element_text(size = 20, colour="black"), text = element_text(size = 15, colour="black")) +
+  facet_grid(. ~ prop) +
+    scale_fill_brewer(palette="Set1")
+
+data_for_plot %>% group_by(prop, Exp) %>% summarise(N = sum(n))
+```
+
+Some examples of leaks: (we only do this for Opti because it doesn't change much)
+
+```{r}
+opti[[1]] %>% filter(Class == "Leak", prop == "P703") %>% sample_n(10) %>% DT::datatable()
+```
+
+```{r}
+opti[[1]] %>% filter(Class == "Leak", prop == "rP703") %>% sample_n(10) %>% DT::datatable()
+```
+
+We calculate the global stats of the LCP
+
+```{r}
+P703_test_LCP <- get_LCP_on_all_test_data(test_data[1])
+
+print(paste("Considering all the object labels and alias, the proportion of LCP < 5 in the test set for P703 is: ", sum(P703_test_LCP$LCP < 5) / nrow(P703_test_LCP) * 100))
+
+rP703_test_LCP <- get_LCP_on_all_test_data(test_data[2])
+print(paste("Considering all the object labels and alias, the proportion of LCP < 5 in the test set for P703 is: ", sum(rP703_test_LCP$LCP < 5) / nrow(rP703_test_LCP) * 100))
+```
+
