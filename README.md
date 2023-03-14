@@ -80,12 +80,12 @@ python preprocessing/process_abroad_triples.py  \
     --outdir="data/np/triples_processed" \
 ```
 
-For help of the parameters use:
+For help use:
 ```{bash}
 process_abroad_triples.py --help
 ```
 
-Info: By default, the datasets are split in 0.4, 0.1, 0.5 for train, dev and test, as in *Sung et al.*. As we want to assess the maximal performances of the models without generalisation purposes, we used 20% of the test set for building the development set and selecting the best checkpoint during training. Then, we merged the initial train and dev set, and, used the *shuf -n X* to extract the new dev set from the test set.
+Info: By default, the datasets are split in 0.4, 0.1, 0.5 for train, dev and test, as in *Sung et al.*. In our analysis, as we want to assess the *maximal* performances of the models without generalisation purposes, we used 20% of the test set for building the development set and selecting the best checkpoint during training. Thus, we merged the initial train and dev set, and, used the *shuf -n X* to extract the new dev set from the test set.
 
 ### Get or re-generate the results
 
