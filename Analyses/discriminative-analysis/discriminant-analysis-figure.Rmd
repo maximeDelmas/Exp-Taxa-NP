@@ -42,14 +42,12 @@ t1.path <- paste(data_directory, "JS_divergence_eval_1_5000.tsv", sep="/")  # to
 t1 <- get_longer_data(t1.path)
 t1$Task <- "task1"
 
-t2.path <- paste(data_directory, "JS_divergence_eval_2_5000.tsv", sep="/") # to change depending on file system
-
-t2 <- get_longer_data(t2.path)
-t2$Task <- "task2"
-
-t <- rbind(t1, t2)
+t <- t1
 
 t$Template <- t$Template + 1
+
+t <- t[t$Template < 13, ]
+
 ```
 
 
@@ -92,7 +90,7 @@ What is the cliff-delta: It is the difference between the probability that X > Y
 
 When comparing 2 variables $X$ and $Y$:
 
-$Delta = \frac{1}{mn} \sum_{i=1}^m \sum_{j=1}^n \delta_{ij}$ avec
+$\Delta = \frac{1}{mn} \sum_{i=1}^m \sum_{j=1}^n \delta_{ij}$ avec
 
 $$
 \delta_{ij} = 
@@ -117,44 +115,49 @@ Figure:
 
 # New facet label names 
 Wilcoxon_data$Compare <- factor(Wilcoxon_data$Compare, levels = c("VS-PosxPos", "VS-NegxNeg"), labels = c("D(P,N) > D(P,P)", "D(P,N) > D(N,N)"))
-Wilcoxon_data$Task <- factor(Wilcoxon_data$Task, levels = c("task1", "task2"), labels = c("Fungus produces Chemical", "Chemical has antimicrobial activity"))
+
+Wilcoxon_data$Task <- factor(Wilcoxon_data$Task, levels = c("task1"), labels = c("Fungus produces Chemical"))
 
 plot1 <- ggplot(Wilcoxon_data[Wilcoxon_data$Compare == "D(P,N) > D(P,P)", ], aes(x = factor(Template), y = model, fill = CliffDelta)) + 
   geom_tile(color = "white",
             lwd = 1.5,
             linetype = 1) +
+  coord_equal() +
   # geom_text(aes(label = round(vs_Neg, 2)), color = "white", size = 6) +
   scale_fill_gradient2(low = "#075AFF",
                        mid = "#FFFFCC",
                        high = "#FF0000",
                        limits = c(-1,1)) +
-  facet_grid(. ~ Task, scales = "free_x", space = "free_x") +
+  # facet_grid(. ~ Task, scales = "free_x", space = "free_x") +
   # ylab("Pre-trained Language Models") +
   theme(axis.text.y = element_text(size = 10),
         axis.title.x=element_blank(),
         axis.title.y=element_blank(),
-        axis.text.x=element_blank(),
-        axis.ticks.x=element_blank())
+        # axis.text.x=element_blank(),
+        # axis.ticks.x=element_blank()
+        )
 
 
 plot2 <- ggplot(Wilcoxon_data[Wilcoxon_data$Compare == "D(P,N) > D(N,N)", ], aes(x = factor(Template), y = model, fill = CliffDelta)) + 
   geom_tile(color = "white",
             lwd = 1.5,
             linetype = 1) +
+  coord_equal() +
   # geom_text(aes(label = round(vs_Neg, 2)), color = "white", size = 6) +
   scale_fill_gradient2(low = "#075AFF",
                        mid = "#FFFFCC",
                        high = "#FF0000",
                        limits = c(-1,1)) +
-  facet_grid(. ~ Task, scales = "free_x", space = "free_x") +
+  # facet_grid(. ~ Task, scales = "free_x", space = "free_x") +
   # ylab("Pre-trained Language Models") +
   theme(axis.text.y = element_text(size = 10),
         strip.background = element_blank(),
         strip.text.x = element_blank(),
         axis.title.x=element_blank(),
         axis.title.y=element_blank(),
-        axis.text.x=element_blank(),
-        axis.ticks.x=element_blank())
+        # axis.text.x=element_blank(),
+        # axis.ticks.x=element_blank()
+        )
 
 ```
 
@@ -172,20 +175,17 @@ Pour la corrélation top 1
 
 ```{r}
 
-t1.cor.path <- paste(data_directory, "top_1_cor_eval_1.tsv")
+t1.cor.path <- paste0(data_directory, "top_1_cor_eval_1.tsv")
 t1_top1_cor <- read_tsv(t1.cor.path)
 t1_top1_cor$Task <- "task1"
 
 
-t2.cor.path <- paste(data_directory, "top_1_cor_eval_2.tsv")
-t2_top1_cor <- read_tsv(t2.cor.path)
-t2_top1_cor$Task <- "task2"
-
-top1_cor <- rbind(t1_top1_cor, t2_top1_cor)
+top1_cor <- t1_top1_cor
 top1_cor$Template <- top1_cor$Template + 1
 
+top1_cor <- top1_cor[top1_cor$Template < 13, ]
 
-top1_cor$Task <- factor(top1_cor$Task, levels = c("task1", "task2"), labels = c("Fungus produces Chemical", "Chemical has antimicrobial activity"))
+top1_cor$Task <- factor(top1_cor$Task, levels = c("task1"), labels = c("Fungus produces Chemical"))
 
 ```
 
@@ -195,11 +195,12 @@ plot3 <- ggplot(top1_cor, aes(x = factor(Template), y = model, fill = cors)) +
   geom_tile(color = "white",
             lwd = 1.5,
             linetype = 1) +
+  coord_equal() +
   # geom_text(aes(label = round(cors, 2)), color = "white", size = 6) +
   scale_fill_gradient2(low = "#075AFF",
                        high = "#FF0000",
                        limits = c(0,1)) +
-  facet_grid(. ~ Task, scales = "free_x", space = "free_x") +
+  # facet_grid(. ~ Task, scales = "free_x", space = "free_x") +
   # ylab("Pre-trained Language Models") +
   # xlab("Template index") +
   theme(axis.title.x=element_blank(),
@@ -224,7 +225,7 @@ full <- ggarrange(plot1, plot2, plot3,
                   labels = c("A", "B", "C"),
                   font.label = list(size = 25, color = "black", face = "bold", family = NULL), 
                   common.legend = FALSE, 
-                  legend = "right", ncol = 1)
+                  legend = "right", ncol = 3)
 ```
 
 ```{r}

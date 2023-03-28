@@ -8,3 +8,5 @@ analysis
 bash/test.sh
 jobs/**
 bash/**
+Analyses/*/save
+**/.Rhistory

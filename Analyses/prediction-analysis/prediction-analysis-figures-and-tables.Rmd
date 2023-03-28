@@ -75,10 +75,10 @@ extract_prediction_proba_pairs <- function(json.data){
 create_plot <- function(big.df, ref){
 
       sub.df <- big.df[big.df$ref == ref, ]
-    data_for_plot <- sub.df %>% mutate(masked.rank.bin = cut(rank.in.masked, breaks = c(-1, 1, 2, 5, 10, 20, 50), labels = c('exclusive', "top1", "top [2-5[", "top [5-10[", "[10-20[", "[20-50["), include.lowest = T, right = F))
+    data_for_plot <- sub.df %>% mutate(masked.rank.bin = cut(rank.in.masked, breaks = c(-1, 1, 2, 5, 10, 20, 50), labels = c('exclusive', "top 1", "top [2-5[", "top [5-10[", "top [10-20[", "top [20-50["), include.lowest = T, right = F))
     data_for_plot <- data_for_plot %>% group_by(ref, preds.rank, masked.rank.bin) %>% summarise(n = n())
     data_for_plot <- data_for_plot %>% group_by(ref, preds.rank) %>% mutate(prop = (n/sum(n)) * 100)
-    data_for_plot$masked.rank.bin <- factor(data_for_plot$masked.rank.bin, levels = c('exclusive', "top1", "top [2-5[", "top [5-10[", "[10-20[", "[20-50["))
+    data_for_plot$masked.rank.bin <- factor(data_for_plot$masked.rank.bin, levels = c('exclusive', "top 1", "top [2-5[", "top [5-10[", "top [10-20[", "top [20-50["))
     
     p <- data_for_plot %>% ggplot(aes(x = preds.rank, y = prop, fill = masked.rank.bin)) +
       geom_bar(stat="identity", width=1) +
